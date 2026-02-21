@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifdef _WIN32
 #include <malloc.h>
@@ -113,6 +114,7 @@ _Noreturn void sys_verror(const char *fmt, va_list ap)
 	__android_log_vprint(ANDROID_LOG_FATAL, "libsys4", fmt, ap);
 #else
 	vfprintf(stderr, fmt, ap);
+	fflush(stderr);
 #endif
 	sys_exit(1);
 }
@@ -130,6 +132,7 @@ void sys_vwarning(const char *fmt, va_list ap)
 	__android_log_vprint(ANDROID_LOG_WARN, "libsys4", fmt, ap);
 #else
 	vfprintf(stderr, fmt, ap);
+	fflush(stderr);
 #endif
 }
 
@@ -164,6 +167,8 @@ void sys_message(const char *fmt, ...)
 
 _Noreturn void sys_exit(int code)
 {
-	// TODO: cleanup
-	exit(code);
+	fflush(stdout);
+	fflush(stderr);
+	// Use _exit to avoid hanging in SDL atexit handlers
+	_exit(code);
 }

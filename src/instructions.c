@@ -424,17 +424,27 @@ void initialize_instructions(int version)
 {
 	if (version >= 11) {
 		instructions[NEW].nr_args = 2;
+		instructions[NEW].ip_inc = 2 + 2 * 4;
 		instructions[CALLHLL].nr_args = 3;
+		instructions[CALLHLL].ip_inc = 2 + 3 * 4;
 		instructions[S_MOD].nr_args = 1;
+		instructions[S_MOD].ip_inc = 2 + 1 * 4;
 		instructions[OBJSWAP].nr_args = 1;
+		instructions[OBJSWAP].ip_inc = 2 + 1 * 4;
 		instructions[DG_STR_TO_METHOD].nr_args = 1;
+		instructions[DG_STR_TO_METHOD].ip_inc = 2 + 1 * 4;
 		instructions[CALLMETHOD].args[0] = T_INT;
 	} else {
 		instructions[NEW].nr_args = 0;
+		instructions[NEW].ip_inc = 2;
 		instructions[CALLHLL].nr_args = 2;
+		instructions[CALLHLL].ip_inc = 2 + 2 * 4;
 		instructions[S_MOD].nr_args = 0;
+		instructions[S_MOD].ip_inc = 2;
 		instructions[OBJSWAP].nr_args = 0;
+		instructions[OBJSWAP].ip_inc = 2;
 		instructions[DG_STR_TO_METHOD].nr_args = 0;
+		instructions[DG_STR_TO_METHOD].ip_inc = 2;
 		instructions[CALLMETHOD].args[0] = T_FUNC;
 	}
 }

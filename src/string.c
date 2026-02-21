@@ -36,8 +36,10 @@ static struct string *alloc_string(int size)
 
 void free_string(struct string *str)
 {
-	if (!str->ref)
-		ERROR("Double free of string object");
+	if (!str->ref) {
+		WARNING("Double free of string object (ignored)");
+		return;
+	}
 	if (!--str->ref) {
 		free(str);
 	}
