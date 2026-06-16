@@ -44,6 +44,7 @@ void ht_foreach(struct hash_table *ht, void(*fun)(struct ht_slot*, void*), void 
  */
 void *ht_get_int(struct hash_table *ht, int key, void *dflt);
 struct ht_slot *ht_put_int(struct hash_table *ht, int key, void *dflt);
+void ht_remove_int(struct hash_table *ht, int key);
 void ht_free_int(struct hash_table *ht);
 
 #endif /* SYSTEM4_HASHTABLE_H */
