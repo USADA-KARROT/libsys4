@@ -193,3 +193,21 @@ struct ht_slot *ht_put_int(struct hash_table *ht, int key, void *dflt)
 	ht->buckets[k]->slots[i].value = dflt;
 	return &ht->buckets[k]->slots[i];
 }
+
+void ht_remove_int(struct hash_table *ht, int key)
+{
+	unsigned int k = int_hash(key) & (ht->nr_buckets - 1);
+	if (!ht->buckets[k])
+		return;
+	struct ht_bucket *b = ht->buckets[k];
+	for (size_t i = 0; i < b->nr_slots; i++) {
+		if (b->slots[i].ikey == key) {
+			// order within a bucket is irrelevant, so fill the
+			// hole with the last slot. int-keyed slots have no
+			// strdup'd key to free (cf. ht_free_int).
+			b->slots[i] = b->slots[b->nr_slots - 1];
+			b->nr_slots--;
+			return;
+		}
+	}
+}
