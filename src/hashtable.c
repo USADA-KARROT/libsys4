@@ -49,7 +49,7 @@ struct hash_table *ht_create(size_t _nr_buckets)
 		nr_buckets <<= 1;
 
 	struct hash_table *ht = xmalloc(sizeof(struct hash_table) + sizeof(struct ht_bucket*)*nr_buckets);
-	memset(ht->buckets, 0, sizeof(struct ht_bucket)*nr_buckets);
+	memset(ht->buckets, 0, sizeof(struct ht_bucket*)*nr_buckets);
 	ht->nr_buckets = nr_buckets;
 	return ht;
 }
