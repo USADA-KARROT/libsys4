@@ -76,3 +76,10 @@ libsys4 = library('sys4', system4,
 
 libsys4_dep = declare_dependency(include_directories : inc,
                                  link_with : libsys4)
+
+test('hashtable',
+     executable('test_hashtable', 'tests/test_hashtable.c',
+                dependencies : libsys4_dep))
+test('instructions',
+     executable('test_instructions', 'tests/test_instructions.c',
+                dependencies : libsys4_dep))
