@@ -156,6 +156,8 @@ bool sjis_has_hankaku(const char *_src) {
 	const uint8_t *src = (uint8_t*)_src;
 	while(*src) {
 		if (SJIS_2BYTE(*src)) {
+			if (!src[1])
+				break; // truncated 2-byte char at end
 			src++;
 		} else {
 			return true;
@@ -184,6 +186,10 @@ int sjis_count_char(const char *_src) {
 
 	while(*src) {
 		if (SJIS_2BYTE(*src)) {
+			if (!src[1]) {
+				c++;
+				break; // truncated 2-byte char at end
+			}
 			src++;
 		}
 		c++; src++;
@@ -195,6 +201,8 @@ int sjis_count_char(const char *_src) {
 void sjis_normalize_path(char *_src) {
 	for (uint8_t *src = (uint8_t*)_src; *src; src++) {
 		if (SJIS_2BYTE(*src)) {
+			if (!src[1])
+				break; // truncated 2-byte char at end
 			src++;
 		} else if ('a' <= *src && *src <= 'z') {
 			*src -= 'a' - 'A';
