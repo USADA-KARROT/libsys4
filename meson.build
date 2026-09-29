@@ -83,3 +83,6 @@ test('hashtable',
 test('instructions',
      executable('test_instructions', 'tests/test_instructions.c',
                 dependencies : libsys4_dep))
+test('string_sjis',
+     executable('test_string_sjis', 'tests/test_string_sjis.c',
+                dependencies : libsys4_dep))
