@@ -39,6 +39,30 @@ extern bool  sjis_has_zenkaku(const char *src);
 extern int   sjis_count_char(const char *src);
 extern void  sjis_normalize_path(char *src);
 
+/*
+ * Character rule for the string_* character helpers and mbcs_*.
+ * SYS4_CHARSET_SJIS (default): the historical behaviour, unchanged.
+ * SYS4_CHARSET_GBK: a byte in 0x81..0xFE starts a 2-byte character (the
+ *   trail byte is not checked and 4-byte GB18030 sequences are not
+ *   recognised); a lead byte followed by NUL is a 1-byte character;
+ *   character codes are (lead << 8) | trail and an out-of-range character
+ *   index never aborts.
+ * Set once after loading the AIN, before running bytecode. The sjis_*
+ * functions above always use the SJIS rule.
+ */
+enum sys4_charset {
+	SYS4_CHARSET_SJIS = 0,
+	SYS4_CHARSET_GBK = 1,
+};
+void sys4_set_string_charset(enum sys4_charset cs);
+enum sys4_charset sys4_get_string_charset(void);
+
+#define GBK_LEAD(b) ((uint8_t)(b) >= 0x81 && (uint8_t)(b) <= 0xFE)
+
+// Same contracts as sjis_index/sjis_count_char, using the active rule.
+int mbcs_index(const char *src, int index);
+int mbcs_count_char(const char *src);
+
 #ifdef _WIN32
 wchar_t *utf8_to_wchar(const char *str);
 char *wchar_to_utf8(const wchar_t *wstr);

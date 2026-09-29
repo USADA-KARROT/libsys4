@@ -53,6 +53,13 @@ void string_pop_back(struct string **s);
 void string_erase(struct string **s, int index);
 void string_clear(struct string *s);
 
+// The historical SJIS packing, whatever the active character rule: the low
+// byte is written first and the character is 2 bytes iff SJIS_2BYTE(c).
+// Serializers whose format depends on it use this directly.
+void string_push_back_sjis(struct string **s, int c);
+// Removes the last character under the SJIS rule (for SJIS-encoded buffers).
+void string_pop_back_sjis(struct string **s);
+
 // queries
 int string_find(const struct string *haystack, const struct string *needle);
 
@@ -61,6 +68,10 @@ int string_get_char(const struct string *str, int i);
 void string_set_char(struct string **s, int i, unsigned int c);
 
 // C strings
+// In-place full-width number normalisation used by string_to_integer:
+// SJIS 82 4F..58 / 81 7C / 81 44 / 81 40, or under the GBK rule A3 B0..B9 and
+// 81 44 (other characters are kept).
+void string_zen2han_number(char *buf);
 int int_to_cstr(char *buf, size_t size, int v, int figures, bool zero_pad, bool zenkaku);
 int float_to_cstr(char *buf, size_t size, float v, int figures, bool zero_pad, int precision, bool zenkaku);
 struct string *cstr_to_string(const char *str);

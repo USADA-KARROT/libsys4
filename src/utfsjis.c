@@ -197,6 +197,60 @@ int sjis_count_char(const char *_src) {
 	return c;
 }
 
+static enum sys4_charset string_charset = SYS4_CHARSET_SJIS;
+
+void sys4_set_string_charset(enum sys4_charset cs)
+{
+	if (cs != SYS4_CHARSET_SJIS && cs != SYS4_CHARSET_GBK) {
+		WARNING("Unknown string charset %d (keeping the current one)", (int)cs);
+		return;
+	}
+	string_charset = cs;
+}
+
+enum sys4_charset sys4_get_string_charset(void)
+{
+	return string_charset;
+}
+
+// GBK counterpart of sjis_index: a lead byte followed by NUL is one character.
+static int gbk_index(const char *_src, int index)
+{
+	const uint8_t *src = (uint8_t*)_src;
+	int i, c;
+	for (i = 0, c = 0; c < index && src[i]; i++, c++) {
+		if (GBK_LEAD(src[i]) && src[i+1])
+			i++;
+	}
+	return src[i] ? i : -1;
+}
+
+static int gbk_count_char(const char *_src)
+{
+	const uint8_t *src = (uint8_t*)_src;
+	int c = 0;
+	while (*src) {
+		if (GBK_LEAD(*src) && src[1])
+			src++;
+		c++; src++;
+	}
+	return c;
+}
+
+int mbcs_index(const char *src, int index)
+{
+	if (string_charset == SYS4_CHARSET_GBK)
+		return gbk_index(src, index);
+	return sjis_index(src, index);
+}
+
+int mbcs_count_char(const char *src)
+{
+	if (string_charset == SYS4_CHARSET_GBK)
+		return gbk_count_char(src);
+	return sjis_count_char(src);
+}
+
 // Replaces lowercase letters with uppercase letters and slashes with backslashes.
 void sjis_normalize_path(char *_src) {
 	for (uint8_t *src = (uint8_t*)_src; *src; src++) {

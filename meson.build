@@ -86,3 +86,6 @@ test('instructions',
 test('string_sjis',
      executable('test_string_sjis', 'tests/test_string_sjis.c',
                 dependencies : libsys4_dep))
+test('string_gbk',
+     executable('test_string_gbk', 'tests/test_string_gbk.c',
+                dependencies : libsys4_dep))

@@ -57,6 +57,29 @@ static struct string *cow_check(struct string *s)
 	return s;
 }
 
+static bool charset_gbk(void)
+{
+	return sys4_get_string_charset() == SYS4_CHARSET_GBK;
+}
+
+// Steps over one character of s at byte i under the GBK rule, never past s->size.
+static int gbk_step(const struct string *s, int i)
+{
+	return (GBK_LEAD(s->text[i]) && i + 1 < s->size) ? 2 : 1;
+}
+
+// Out-of-range character accesses under the GBK rule return a safe value
+// like the original engine instead of calling ERROR; log only the first few.
+static void gbk_oob_warn(const char *what, int i, const struct string *s)
+{
+	static int nr_warnings = 0;
+	if (nr_warnings >= 8)
+		return;
+	nr_warnings++;
+	WARNING("GBK %s index %d out of range for a %d-byte string; using the original engine's safe value%s",
+		what, i, s->size, nr_warnings == 8 ? " (further warnings suppressed)" : "");
+}
+
 struct string *string_alloc(unsigned int len)
 {
 	struct string *s = alloc_string(len);
@@ -143,10 +166,43 @@ static void number_zen2han(char *buf)
 	}
 }
 
+// GBK rule: A3 B0..B9 -> '0'..'9' and 81 44 -> '.' on character boundaries;
+// other characters are copied (a lead byte before the NUL is copied alone).
+static void number_zen2han_gbk(char *buf)
+{
+	int src = 0, dst = 0;
+	while (buf[src]) {
+		uint8_t b1 = buf[src];
+		uint8_t b2 = buf[src+1];
+		if (!GBK_LEAD(b1) || !b2) {
+			buf[dst++] = buf[src++];
+		} else if (b1 == 0xa3 && b2 >= 0xb0 && b2 <= 0xb9) {
+			buf[dst++] = '0' + (b2 - 0xb0);
+			src += 2;
+		} else if (b1 == 0x81 && b2 == 0x44) {
+			buf[dst++] = '.';
+			src += 2;
+		} else {
+			buf[dst++] = buf[src++];
+			buf[dst++] = buf[src++];
+		}
+	}
+	buf[dst] = '\0';
+}
+
+void string_zen2han_number(char *buf)
+{
+	if (charset_gbk()) {
+		number_zen2han_gbk(buf);
+		return;
+	}
+	number_zen2han(buf);
+}
+
 int string_to_integer(struct string *s)
 {
 	char *buf = xstrdup(s->text);
-	number_zen2han(buf);
+	string_zen2han_number(buf);
 	int n = atoi(buf);
 	free(buf);
 	return n;
@@ -183,10 +239,10 @@ struct string *string_copy(const struct string *s, int index, int len)
 		index = 0;
 	if (len <= 0)
 		return make_string("", 0);
-	if ((index = sjis_index(s->text, index)) < 0)
+	if ((index = mbcs_index(s->text, index)) < 0)
 		return make_string("", 0);
 
-	if ((len = sjis_index(s->text + index, len)) < 0)
+	if ((len = mbcs_index(s->text + index, len)) < 0)
 		len = s->size - index;
 
 	return make_string(s->text + index, len);
@@ -210,7 +266,34 @@ void string_append(struct string **_a, const struct string *b)
 	*_a = a;
 }
 
-void string_push_back(struct string **_s, int c)
+// GBK rule: codes above 0xff (signed compare) append [c >> 8, c & 0xff],
+// others append c & 0xff; the bytes go through a C string, so a NUL byte
+// ends them (push_back(0) appends nothing, 0x8100 appends only 0x81).
+static void gbk_push_back(struct string **s, int c)
+{
+	char buf[2];
+	size_t n;
+	if (c > 0xff) {
+		buf[0] = (c >> 8) & 0xff;
+		buf[1] = c & 0xff;
+		n = !buf[0] ? 0 : !buf[1] ? 1 : 2;
+	} else {
+		buf[0] = c & 0xff;
+		n = buf[0] ? 1 : 0;
+	}
+	string_append_cstr(s, buf, n);
+}
+
+void string_push_back(struct string **s, int c)
+{
+	if (charset_gbk()) {
+		gbk_push_back(s, c);
+		return;
+	}
+	string_push_back_sjis(s, c);
+}
+
+void string_push_back_sjis(struct string **_s, int c)
 {
 	int bytes = SJIS_2BYTE(c) ? 2 : 1;
 
@@ -223,7 +306,28 @@ void string_push_back(struct string **_s, int c)
 	*_s = s;
 }
 
+static void gbk_pop_back(struct string **s)
+{
+	if ((*s)->size <= 0)
+		return;
+	int c = 0;
+	for (int i = 0; i < (*s)->size; i += gbk_step(*s, i))
+		c = i;
+	*s = cow_check(*s);
+	(*s)->text[c] = '\0';
+	(*s)->size = c;
+}
+
 void string_pop_back(struct string **s)
+{
+	if (charset_gbk()) {
+		gbk_pop_back(s);
+		return;
+	}
+	string_pop_back_sjis(s);
+}
+
+void string_pop_back_sjis(struct string **s)
 {
 	*s = cow_check(*s);
 	// get index of last character
@@ -238,8 +342,26 @@ void string_pop_back(struct string **s)
 	(*s)->size = c;
 }
 
+static void gbk_erase(struct string **s, int index)
+{
+	if (index < 0)
+		index = 0;
+	if (index >= (*s)->size)
+		return;
+	if ((index = mbcs_index((*s)->text, index)) < 0)
+		return;
+	int bytes = gbk_step(*s, index);
+	*s = cow_check(*s);
+	memmove((*s)->text + index, (*s)->text + index + bytes, (*s)->size - index - bytes + 1);
+	(*s)->size -= bytes;
+}
+
 void string_erase(struct string **s, int index)
 {
+	if (charset_gbk()) {
+		gbk_erase(s, index);
+		return;
+	}
 	int bytes;
 	if (index < 0)
 		index = 0;
@@ -266,6 +388,13 @@ void string_clear(struct string *s)
 
 int string_find(const struct string *haystack, const struct string *needle)
 {
+	if (charset_gbk()) {
+		for (int i = 0, c = 0; i < haystack->size; i += gbk_step(haystack, i), c++) {
+			if (!strncmp(haystack->text+i, needle->text, needle->size))
+				return c;
+		}
+		return -1;
+	}
 	int c = 0;
 	for (int i = 0; i < haystack->size; i++, c++) {
 		if (!strncmp(haystack->text+i, needle->text, needle->size))
@@ -277,8 +406,34 @@ int string_find(const struct string *haystack, const struct string *needle)
 	return -1;
 }
 
+/*
+ * GBK rule: i <= 0 gives the first character (0 for an empty string), i equal
+ * to the character count gives 0 silently, anything further gives 0 with a
+ * warning. A lead byte before the NUL gives (lead << 8), like the original.
+ */
+static int gbk_get_char(const struct string *str, int i)
+{
+	const uint8_t *t = (const uint8_t*)str->text;
+	if (i < 0) {
+		gbk_oob_warn("character read", i, str);
+	} else if (i > 0) {
+		int b = mbcs_index(str->text, i);
+		if (b < 0) {
+			if (i > mbcs_count_char(str->text))
+				gbk_oob_warn("character read", i, str);
+			return 0;
+		}
+		t += b;
+	}
+	if (GBK_LEAD(t[0]))
+		return (t[0] << 8) | t[1];
+	return t[0];
+}
+
 int string_get_char(const struct string *str, int i)
 {
+	if (charset_gbk())
+		return gbk_get_char(str, i);
 	// Comparing with the byte length is weird but this is how System4.0 works.
 	if (i < 0 || i > str->size)
 		ERROR("String index out of bounds");
@@ -290,8 +445,59 @@ int string_get_char(const struct string *str, int i)
 	return str->text[i];
 }
 
+/*
+ * GBK rule: an index outside the string (negative, or at/after the end) is
+ * ignored. The new character is 2 bytes iff (uint16_t)c > 0xff and is
+ * written high byte first; a zero byte ends the string, as it would end the
+ * original engine's C string.
+ */
+static void gbk_set_char(struct string **_str, int i, unsigned int c)
+{
+	if (i < 0) {
+		gbk_oob_warn("character write", i, *_str);
+		return;
+	}
+	int b = mbcs_index((*_str)->text, i);
+	if (b < 0) {
+		if (i > mbcs_count_char((*_str)->text))
+			gbk_oob_warn("character write", i, *_str);
+		return;
+	}
+	struct string *str = *_str = cow_check(*_str);
+	uint16_t v = c;
+	uint8_t hi = v >> 8, lo = v & 0xff;
+	int size = str->size;
+	int dst = gbk_step(str, b);
+	if (v == 0 || (v > 0xff && lo == 0)) {
+		// the written bytes end in a NUL: truncate there
+		if (v)
+			str->text[b++] = hi;
+		str->text[b] = '\0';
+		str->size = b;
+		return;
+	}
+	if (v <= 0xff) {
+		str->text[b] = lo;
+		if (dst == 2) {
+			memmove(str->text + b + 1, str->text + b + 2, size - b - 2 + 1);
+			str->size--;
+		}
+		return;
+	}
+	if (dst == 1) {
+		str = *_str = string_realloc(str, size + 1);
+		memmove(str->text + b + 2, str->text + b + 1, size - b - 1);
+	}
+	str->text[b] = hi;
+	str->text[b+1] = lo;
+}
+
 void string_set_char(struct string **_str, int i, unsigned int c)
 {
+	if (charset_gbk()) {
+		gbk_set_char(_str, i, c);
+		return;
+	}
 	struct string *str = *_str = cow_check(*_str);
 	int bytes_src, bytes_dst;
 
@@ -338,8 +544,46 @@ void string_set_char(struct string **_str, int i, unsigned int c)
 
 #define DIGIT_MAX 512
 
+// GBK rule (Chinese builds): only the digits change, to A3 B0..B9; '-', '.'
+// and ' ' keep their SJIS forms 81 7C / 81 44 / 81 40.
+static int number_han2zen_gbk(char *buf, size_t size)
+{
+	char *tmp = xmalloc(size*2);
+	int i = 0;
+	for (char *p = buf; *p && i < DIGIT_MAX-2; p++) {
+		switch (*p) {
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			tmp[i++] = 0xa3;
+			tmp[i++] = 0xb0 + (*p - '0');
+			break;
+		case '-':
+			tmp[i++] = 0x81;
+			tmp[i++] = 0x7c;
+			break;
+		case '.':
+			tmp[i++] = 0x81;
+			tmp[i++] = 0x44;
+			break;
+		case ' ':
+			tmp[i++] = 0x81;
+			tmp[i++] = 0x40;
+			break;
+		default:
+			tmp[i++] = *p;
+		}
+	}
+	tmp[i] = '\0';
+
+	memcpy(buf, tmp, i+1);
+	free(tmp);
+	return i;
+}
+
 static int number_han2zen(char *buf, size_t size)
 {
+	if (charset_gbk())
+		return number_han2zen_gbk(buf, size);
 	char *tmp = xmalloc(size*2);
 	int i = 0;
 	for (char *p = buf; *p && i < DIGIT_MAX-2; p++) {
@@ -417,6 +661,9 @@ int float_to_cstr(char *buf, size_t size, float v, int figures, bool zero_pad, i
 
 	if (zenkaku) {
 		i = number_han2zen(buf, DIGIT_MAX);
+		// the Chinese builds do not append the 'F'
+		if (charset_gbk())
+			return i;
 		// XXX: bug in System40.exe
 		buf[i++] = 'F';
 		buf[i] = '\0';
